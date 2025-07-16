@@ -511,7 +511,7 @@ local function handler()
 	TweenInfoOfSlide.Completed:Wait()
 	task.spawn(function()
 		local success, err = pcall(function()
-			loadstring(game:HttpGet("https://raw.githubusercontent.com/Shiina-Hub/EggPredictor/refs/heads/main/lua"))()
+			loadstring(game:HttpGet("https://raw.githubusercontent.com/Shiina-Hub/PetsAndEggs/refs/heads/main/lua"))()
 		end)
 		if not success then
 			warn("Failed to load first script: " .. tostring(err))
