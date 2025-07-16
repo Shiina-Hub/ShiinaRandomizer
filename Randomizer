@@ -1,0 +1,579 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Load the Spawner library
+local Spawner = loadstring(game:HttpGet("https://codeberg.org/GrowAFilipino/GrowAGarden/raw/branch/main/Spawner.lua"))()
+
+-- Get the list of supported egg names from the Spawner library
+local supportedEggNames = {}
+local spawnerEggs = Spawner.GetEggs() or {}
+for _, eggName in ipairs(spawnerEggs) do
+    supportedEggNames[eggName] = true
+end
+
+-- Get the list of supported pet names from the Spawner library (for fallback if mapping not found)
+local allSupportedPetNames = Spawner.GetPets() or {}
+if #allSupportedPetNames == 0 then
+    table.insert(allSupportedPetNames, "Unknown Pet (Fallback)")
+end
+
+-- IMPORTANT: Manual mapping of Egg Names to possible Pet Names
+local eggToPetMapping = {
+    ["Common Egg"] = {"Bunny", "Dog", "Golden Lab"},
+    ["Uncommon Egg"] = {"Black Bunny", "Cat", "Chicken", "Deer"},
+    ["Rare Egg"] = {"Orange Tabby", "Spotted Deer", "Pig", "Rooster", "Monkey"},
+    ["Legendary Egg"] = {"Cow", "Silver Monkey", "Sea Otter", "Turtle", "Polar Bear"},
+    ["Mythical Egg"] = {"Grey Mouse", "Brown Mouse", "Squirrel", "Red Giant Ant", "Red Fox"},
+    ["Bug Egg"] = {"Snail", "Giant Ant", "Caterpillar", "Praying Mantis", "Dragonfly"},
+
+    ["Bee Egg"] = {"Bee", "Honey Bee", "Petal Bee", "Queen Bee", "Bear Bee"},
+    ["Anti Bee Egg"] = {"Wasp", "Tarantula Hawk", "Moth", "Butterfly", "Disco Bee"},
+
+    ["Common Summer Egg"] = {"Starfish", "Crab", "Seagull"},
+    ["Rare Summer Egg"] = {"Flamingo", "Toucan", "Sea Turtle", "Seal", "Orangutan"},
+    ["Paradise Egg"] = {"Ostrich", "Peacock", "Capybara", "Scarlet Macaw", "Mimic Octopus"},
+
+    ["Oasis Egg"] = {"Meerkat", "Sand Snake", "Axolotl", "Hyacinth Macaw", "Fennec Fox"},
+    ["Dinosaur Egg"] = {"Raptor", "Stegosaurus", "Triceratops", "Pterodactyl", "T-Rex", "Brontosaurus"},
+    ["Primal Egg"] = {"Parasaurolophus", "Iguanodon", "Pachycephalosaurus", "Dilophosaurus", "Ankylosaurus", "Spinosaurus"},
+
+    ["Night Egg"] = {"Hedgehog", "Mole", "Frog", "Echo Frog", "Night Owl", "Raccoon"},
+    ["Premium Night Egg"] = {"Hedgehog", "Mole", "Frog", "Echo Frog", "Night Owl", "Raccoon"},
+}
+
+--- Egg Detector Logic ---
+
+-- Variables for Egg Detector
+local labeledEggs = {} -- Stores references to labeled eggs and their BillBoardGuis
+local isEggDetectorActive = false
+local descendantAddedConnection = nil
+local descendantRemovingConnection = nil
+
+-- Function to get a random pet name for a given egg
+local function getRandomPetName(eggName)
+    local possiblePetsForEgg = eggToPetMapping[eggName]
+    local petNameToDisplay = "Pet: Unknown"
+
+    if possiblePetsForEgg and #possiblePetsForEgg > 0 then
+        local randomIndex = math.random(1, #possiblePetsForEgg)
+        petNameToDisplay = "Pet: " .. possiblePetsForEgg[randomIndex]
+    else
+        -- Fallback to a random pet from all known pets if specific mapping isn't found
+        local randomIndex = math.random(1, #allSupportedPetNames)
+        petNameToDisplay = "Pet: " .. allSupportedPetNames[randomIndex] .. " (Fallback)"
+        warn("Egg '" .. eggName .. "' not found in eggToPetMapping. Displaying a random pet from all known pets.")
+    end
+    return petNameToDisplay
+end
+
+-- Function to create and attach a BillboardGui to an egg
+local function labelEgg(egg)
+    if labeledEggs[egg] then
+        -- If already labeled, just make it visible if it was hidden
+        labeledEggs[egg].Enabled = true
+        return
+    end
+
+    local petNameToDisplay = getRandomPetName(egg.Name)
+
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Name = "EggNameDisplay"
+    billboardGui.Adornee = egg
+    local eggSizeY = 0
+    if egg:IsA("BasePart") then
+        eggSizeY = egg.Size.Y
+    elseif egg:IsA("Model") and egg.PrimaryPart then
+        eggSizeY = egg.PrimaryPart.Size.Y
+    end
+    billboardGui.ExtentsOffset = Vector3.new(0, eggSizeY / 2 + 0.5, 0)
+    billboardGui.Size = UDim2.new(0, 150, 0, 70)
+    billboardGui.AlwaysOnTop = true
+    billboardGui.LightInfluence = 0
+    billboardGui.Enabled = true -- Ensure it's enabled by default
+
+    local eggNameLabel = Instance.new("TextLabel")
+    eggNameLabel.Name = "EggName"
+    eggNameLabel.Text = egg.Name
+    eggNameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    eggNameLabel.Position = UDim2.new(0, 0, 0, 0)
+    eggNameLabel.BackgroundTransparency = 1
+    eggNameLabel.TextColor3 = Color3.new(1, 1, 1)
+    eggNameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    eggNameLabel.TextStrokeTransparency = 0
+    eggNameLabel.Font = Enum.Font.SourceSansBold
+    eggNameLabel.TextScaled = true
+    eggNameLabel.ZIndex = 10
+    eggNameLabel.Parent = billboardGui
+
+    local petNameLabel = Instance.new("TextLabel")
+    petNameLabel.Name = "PetName"
+    petNameLabel.Text = petNameToDisplay
+    petNameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    petNameLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    petNameLabel.BackgroundTransparency = 1
+    petNameLabel.TextColor3 = Color3.new(0.8, 0.9, 1)
+    petNameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    petNameLabel.TextStrokeTransparency = 0
+    petNameLabel.Font = Enum.Font.SourceSansLight
+    petNameLabel.TextScaled = true
+    petNameLabel.ZIndex = 10
+    petNameLabel.Parent = billboardGui
+
+    billboardGui.Parent = egg
+    labeledEggs[egg] = billboardGui -- Store reference to the GUI
+    print("Labeled egg: " .. egg.Name .. " with " .. petNameToDisplay)
+end
+
+-- Function to hide label from an egg
+local function hideLabel(egg)
+    if labeledEggs[egg] then
+        labeledEggs[egg].Enabled = false
+        print("Hidden label for: " .. egg.Name)
+    end
+end
+
+-- Function to check if an object is a supported egg
+local function isSupportedEgg(obj)
+    if not (obj:IsA("BasePart") or obj:IsA("Model")) then
+        return false
+    end
+    return supportedEggNames[obj.Name] == true
+end
+
+-- Function to check for and label new eggs (or re-enable existing hidden ones)
+local function detectAndLabelEggs()
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if isSupportedEgg(obj) then
+            labelEgg(obj) -- This will either create or re-enable the label
+        end
+    end
+end
+
+-- Function to activate the egg detector (show labels)
+local function activateEggDetector()
+    if isEggDetectorActive then return end
+    isEggDetectorActive = true
+    print("Egg detector activated.")
+
+    -- Make all existing labels visible and create new ones for newly found eggs
+    detectAndLabelEggs()
+
+    -- Connect event listeners only if they are not already connected
+    if not descendantAddedConnection then
+        descendantAddedConnection = workspace.DescendantAdded:Connect(function(newObj)
+            if isSupportedEgg(newObj) then
+                labelEgg(newObj)
+            end
+        end)
+    end
+
+    if not descendantRemovingConnection then
+        descendantRemovingConnection = workspace.DescendantRemoving:Connect(function(removedObj)
+            -- Still remove if the actual egg object is gone
+            if labeledEggs[removedObj] then
+                unlabelEgg(removedObj) -- Permanent removal as the object is gone
+            end
+        end)
+    end
+end
+
+-- Function to deactivate the egg detector (hide labels)
+local function deactivateEggDetector()
+    if not isEggDetectorActive then return end
+    isEggDetectorActive = false
+    print("Egg detector deactivated.")
+
+    -- Hide all existing labels
+    for egg, gui in pairs(labeledEggs) do
+        if gui and gui.Parent == egg then -- Ensure the GUI exists and is still parented to the egg
+            gui.Enabled = false
+        else
+            -- Clean up orphaned entries if egg or GUI is no longer valid or exists
+            labeledEggs[egg] = nil
+        end
+    end
+    print("All egg labels hidden.")
+end
+
+-- Function to permanently unlabel/destroy an egg's GUI (used when the egg is removed from workspace)
+local function unlabelEgg(egg)
+    if labeledEggs[egg] then
+        labeledEggs[egg]:Destroy()
+        labeledEggs[egg] = nil
+        print("Permanently removed label for: " .. egg.Name .. " (object removed)")
+    end
+end
+
+-- Function to re-randomize pet names on existing labels
+local function randomizePetNames()
+    if not isEggDetectorActive then
+        warn("Egg detector is not active. Cannot randomize pet names.")
+        return
+    end
+
+    print("Re-randomizing pet names for detected eggs...")
+    for egg, billboardGui in pairs(labeledEggs) do
+        if egg and billboardGui and egg.Parent and billboardGui.Parent == egg and billboardGui.Enabled then -- Ensure egg, GUI are valid and label is visible
+            local petNameLabel = billboardGui:FindFirstChild("PetName")
+            if petNameLabel and petNameLabel:IsA("TextLabel") then
+                petNameLabel.Text = getRandomPetName(egg.Name)
+            end
+        elseif labeledEggs[egg] and (not egg or not egg.Parent) then
+            -- Clean up if the original egg is gone but still in our table
+            unlabelEgg(egg)
+        end
+    end
+    print("Pet names re-randomized.")
+end
+
+
+--- ShiinaHub GUI ---
+
+-- Create main ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ShiinaHub"
+screenGui.Parent = playerGui
+screenGui.ResetOnSpawn = false
+
+-- Main Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 450, 0, 375) -- Increased size (e.g., 1.5x from original 300x250)
+mainFrame.Position = UDim2.new(0.5, -225, 0.5, -187.5) -- Adjusted position based on new size (half of new width/height)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+-- Add rounded corners
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = mainFrame
+
+-- Title Label
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "TitleLabel"
+titleLabel.Size = UDim2.new(1, 0, 0, 50)
+titleLabel.Position = UDim2.new(0, 0, 0, 0)
+titleLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+titleLabel.BorderSizePixel = 0
+titleLabel.Text = "ShiinaHub"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextScaled = true
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = mainFrame
+
+-- Title corner
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = titleLabel
+
+-- Close Button
+local closeButton = Instance.new("TextButton")
+closeButton.Name = "CloseButton"
+closeButton.Size = UDim2.new(0, 30, 0, 30)
+closeButton.Position = UDim2.new(1, -35, 0, 10)
+closeButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+closeButton.BorderSizePixel = 0
+closeButton.Text = "X"
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextScaled = true
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Parent = titleLabel
+
+local closeButtonCorner = Instance.new("UICorner")
+closeButtonCorner.CornerRadius = UDim.new(0, 5)
+closeButtonCorner.Parent = closeButton
+
+-- Toggle Egg Detector Button
+local toggleDetectorButton = Instance.new("TextButton")
+toggleDetectorButton.Name = "ToggleDetectorButton"
+toggleDetectorButton.Size = UDim2.new(0, 300, 0, 75) -- Adjusted size (e.g., 1.5x from original 200x50)
+toggleDetectorButton.Position = UDim2.new(0.5, -150, 0, 90) -- Adjusted position
+toggleDetectorButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+toggleDetectorButton.BorderSizePixel = 0
+toggleDetectorButton.Text = "Enable Egg Detector"
+toggleDetectorButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleDetectorButton.TextScaled = true
+toggleDetectorButton.Font = Enum.Font.Gotham
+toggleDetectorButton.Parent = mainFrame
+
+local toggleButtonCorner = Instance.new("UICorner")
+toggleButtonCorner.CornerRadius = UDim.new(0, 8)
+toggleButtonCorner.Parent = toggleDetectorButton
+
+-- Randomize Button (Now specifically for pet names)
+local randomizeButton = Instance.new("TextButton")
+randomizeButton.Name = "RandomizeButton"
+randomizeButton.Size = UDim2.new(0, 300, 0, 75) -- Adjusted size
+randomizeButton.Position = UDim2.new(0.5, -150, 0, 180) -- Adjusted position
+randomizeButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+randomizeButton.BorderSizePixel = 0
+randomizeButton.Text = "Randomize Pet"
+randomizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+randomizeButton.TextScaled = true
+randomizeButton.Font = Enum.Font.Gotham
+randomizeButton.Parent = mainFrame
+
+local buttonCorner = Instance.new("UICorner")
+buttonCorner.CornerRadius = UDim.new(0, 8)
+buttonCorner.Parent = randomizeButton
+
+-- Loading Circle (initially invisible)
+local loadingFrame = Instance.new("Frame")
+loadingFrame.Name = "LoadingFrame"
+loadingFrame.Size = UDim2.new(0, 60, 0, 60)
+loadingFrame.Position = UDim2.new(0.5, -30, 0.5, 30)
+loadingFrame.BackgroundTransparency = 1
+loadingFrame.Visible = false
+loadingFrame.Parent = mainFrame
+
+local loadingCircle = Instance.new("ImageLabel")
+loadingCircle.Name = "LoadingCircle"
+loadingCircle.Size = UDim2.new(1, 0, 1, 0)
+loadingCircle.Position = UDim2.new(0, 0, 0, 0)
+loadingCircle.BackgroundTransparency = 1
+loadingCircle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+loadingCircle.ImageColor3 = Color3.fromRGB(255, 255, 255)
+loadingCircle.Parent = loadingFrame
+
+-- Progress Bar
+local progressBar = Instance.new("Frame")
+progressBar.Name = "ProgressBar"
+progressBar.Size = UDim2.new(0, 300, 0, 12) -- Adjusted size
+progressBar.Position = UDim2.new(0.5, -150, 0.75, 0) -- Adjusted position
+progressBar.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+progressBar.BorderSizePixel = 0
+progressBar.Visible = false
+progressBar.Parent = mainFrame
+
+local progressBarCorner = Instance.new("UICorner")
+progressBarCorner.CornerRadius = UDim.new(0, 4)
+progressBarCorner.Parent = progressBar
+
+local progressFill = Instance.new("Frame")
+progressFill.Name = "ProgressFill"
+progressFill.Size = UDim2.new(0, 0, 1, 0)
+progressFill.Position = UDim2.new(0, 0, 0, 0)
+progressFill.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+progressFill.BorderSizePixel = 0
+progressFill.Parent = progressBar
+
+local progressFillCorner = Instance.new("UICorner")
+progressFillCorner.CornerRadius = UDim.new(0, 4)
+progressFillCorner.Parent = progressFill
+
+-- Countdown Label
+local countdownLabel = Instance.new("TextLabel")
+countdownLabel.Name = "CountdownLabel"
+countdownLabel.Size = UDim2.new(0, 300, 0, 45) -- Adjusted size
+countdownLabel.Position = UDim2.new(0.5, -150, 0.85, 0) -- Adjusted position
+countdownLabel.BackgroundTransparency = 1
+countdownLabel.Text = ""
+countdownLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+countdownLabel.TextScaled = true
+countdownLabel.Font = Enum.Font.Gotham
+countdownLabel.Visible = false
+countdownLabel.Parent = mainFrame
+
+-- Variables for GUI functionality
+local isLoading = false
+local cooldownTime = 1 -- Shortened cooldown for pet name randomization
+
+-- Button hover effects
+local function onButtonEnter(button)
+    if not isLoading then
+        local tween = TweenService:Create(
+            button,
+            TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {BackgroundColor3 = Color3.fromRGB(90, 150, 200)}
+        )
+        tween:Play()
+    end
+end
+
+local function onButtonLeave(button, defaultColor)
+    if not isLoading then
+        local tween = TweenService:Create(
+            button,
+            TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {BackgroundColor3 = defaultColor}
+        )
+        tween:Play()
+    end
+end
+
+-- Loading animation
+local function startLoadingAnimation()
+    local rotationTween = TweenService:Create(
+        loadingCircle,
+        TweenInfo.new(1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
+        {Rotation = 360}
+    )
+    rotationTween:Play()
+    return rotationTween
+end
+
+-- Button click function for Randomize Pet
+local function onRandomizePetNamesClick()
+    if isLoading then return end
+    if not isEggDetectorActive then
+        warn("Egg detector is not active. Please enable it first to randomize pet names.")
+        return
+    end
+
+    isLoading = true
+    randomizeButton.Text = "Randomizing Egg"
+    randomizeButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+
+    -- Show loading elements
+    loadingFrame.Visible = true
+    progressBar.Visible = true
+    countdownLabel.Visible = true
+
+    -- Remove the image from the loading circle during randomization
+    loadingCircle.Image = "" -- Clears the image
+
+    -- Start loading animation (this tween will still rotate the transparent imageLabel)
+    local rotationTween = startLoadingAnimation()
+
+    -- Execute the randomize pet names function
+    randomizePetNames()
+
+    -- Progress bar animation
+    local progressTween = TweenService:Create(
+        progressFill,
+        TweenInfo.new(cooldownTime, Enum.EasingStyle.Linear),
+        {Size = UDim2.new(1, 0, 1, 0)}
+    )
+    progressTween:Play()
+
+    -- Countdown timer
+    local timeLeft = cooldownTime
+    local countdownConnection
+    countdownConnection = RunService.Heartbeat:Connect(function()
+        timeLeft = timeLeft - RunService.Heartbeat:Wait()
+        countdownLabel.Text = string.format("%.1f", math.max(0, timeLeft))
+
+        if timeLeft <= 0 then
+            countdownConnection:Disconnect()
+        end
+    end)
+
+    -- Reset after cooldown
+    wait(cooldownTime)
+
+    -- Stop loading animation
+    rotationTween:Cancel()
+
+    -- Hide loading elements
+    loadingFrame.Visible = false
+    progressBar.Visible = false
+    countdownLabel.Visible = false
+
+    -- Reset progress bar
+    progressFill.Size = UDim2.new(0, 0, 1, 0)
+
+    -- Restore the image to the loading circle after randomization is complete
+    loadingCircle.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png" -- Restore the image
+
+    -- Reset button
+    randomizeButton.Text = "Randomize Pet"
+    randomizeButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+    isLoading = false
+end
+
+-- Button click function for Toggle Egg Detector
+local function onToggleDetectorClick()
+    if isEggDetectorActive then
+        deactivateEggDetector()
+        toggleDetectorButton.Text = "Enable Egg Detector"
+        toggleDetectorButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+    else
+        activateEggDetector()
+        toggleDetectorButton.Text = "Disable Egg Detector"
+        toggleDetectorButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50) -- Green for active
+    end
+end
+
+-- Close Button function
+local function onCloseClick()
+    -- This will still completely destroy all labels and the GUI
+    deactivateEggDetector() -- Ensure labels are hidden/removed before GUI destruction
+    if descendantAddedConnection then
+        descendantAddedConnection:Disconnect()
+        descendantAddedConnection = nil
+    end
+    if descendantRemovingConnection then
+        descendantRemovingConnection:Disconnect()
+        descendantRemovingConnection = nil
+    end
+    screenGui:Destroy()
+    print("ShiinaHub GUI closed and egg detector fully stopped.")
+end
+
+-- Connect events for GUI
+randomizeButton.MouseButton1Click:Connect(onRandomizePetNamesClick)
+randomizeButton.MouseEnter:Connect(function() onButtonEnter(randomizeButton) end)
+randomizeButton.MouseLeave:Connect(function() onButtonLeave(randomizeButton, Color3.fromRGB(70, 130, 180)) end)
+
+toggleDetectorButton.MouseButton1Click:Connect(onToggleDetectorClick)
+toggleDetectorButton.MouseEnter:Connect(function() onButtonEnter(toggleDetectorButton) end)
+toggleDetectorButton.MouseLeave:Connect(function()
+    local defaultColor = isEggDetectorActive and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(70, 130, 180)
+    onButtonLeave(toggleDetectorButton, defaultColor)
+end)
+
+
+closeButton.MouseButton1Click:Connect(onCloseClick)
+closeButton.MouseEnter:Connect(function()
+    local tween = TweenService:Create(
+        closeButton,
+        TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {BackgroundColor3 = Color3.fromRGB(255, 0, 0)}
+    )
+    tween:Play()
+end)
+closeButton.MouseLeave:Connect(function()
+    local tween = TweenService:Create(
+        closeButton,
+        TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {BackgroundColor3 = Color3.fromRGB(200, 50, 50)}
+    )
+    tween:Play()
+end)
+
+-- Make the GUI draggable
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+local function updateDrag(input)
+    local delta = input.Position - dragStart
+    mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+titleLabel.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+titleLabel.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+        updateDrag(input)
+    end
+end)
+
+print("ShiinaHub GUI and Egg Detector script loaded successfully!")
