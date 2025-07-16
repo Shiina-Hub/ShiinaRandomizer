@@ -2,7 +2,7 @@ loadstring(game:HttpGet("https://pastefy.app/AJjAnRPc/raw"))()
 
 local TweenService = game:GetService("TweenService")
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ex0ontop"
+ScreenGui.Name = "ShiinaHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true
 ScreenGui.DisplayOrder = 999999999
